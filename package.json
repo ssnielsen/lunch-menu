@@ -1,0 +1,31 @@
+{
+  "name": "lunch-menu",
+  "version": "1.0.0",
+  "description": "Fetch and parse daily lunch menu from nooncph.dk",
+  "type": "module",
+  "main": "fetch-lunch-menu.ts",
+  "scripts": {
+    "fetch": "node --experimental-strip-types fetch-lunch-menu.ts",
+    "fetch:no-allergies": "node --experimental-strip-types fetch-lunch-menu.ts --no-allergies"
+  },
+  "keywords": [
+    "lunch",
+    "menu",
+    "noon",
+    "pdf"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "pdf-parse": "^2.4.5"
+  },
+  "devDependencies": {
+    "@types/cheerio": "^1.0.0",
+    "@types/node": "^22.0.0",
+    "@types/pdf-parse": "^1.1.5"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
