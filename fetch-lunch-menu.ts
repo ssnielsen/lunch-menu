@@ -180,10 +180,15 @@ async function parsePdf(filePath: string): Promise<string> {
 function findMenuPdfUrl(html: string, weekNumber: number, dayName: string): string | null {
     const $ = cheerio.load(html);
 
-    // Look for links containing the day name and week context
-    let pdfUrl: string | null = null;
+    // Strategy: Find all PDF links for the current day, then determine which week
+    // each belongs to by looking at the last week heading that appears before it
+    // in the HTML document.
 
-    // Find all PDF links
+    const bodyHtml = $('body').html() || html;
+
+    // Find all PDF links for the current day and determine their week
+    const candidates: Array<{ href: string; weekNum: number | null }> = [];
+
     $('a[href$=".pdf"]').each((_, element) => {
         const href = $(element).attr('href');
         const text = $(element).text().toLowerCase();
@@ -191,35 +196,51 @@ function findMenuPdfUrl(html: string, weekNumber: number, dayName: string): stri
         if (!href) return;
 
         // Check if this link is for the current day
-        if (text.includes(dayName.toLowerCase()) || href.toLowerCase().includes(dayName.toLowerCase())) {
-            // Look for week context in surrounding elements
-            const parent = $(element).parent();
-            const parentText = parent.text().toLowerCase();
-
-            // Check if this is for the current week
-            if (parentText.includes(`uge ${weekNumber}`) || parentText.includes(`week ${weekNumber}`)) {
-                pdfUrl = href;
-                return false; // Break the loop
-            }
+        if (!text.includes(dayName.toLowerCase()) && !href.toLowerCase().includes(dayName.toLowerCase())) {
+            return;
         }
+
+        // First check if the PDF URL itself contains the week number
+        const urlWeekMatch = href.match(/(uge|week|w)[_\-\s]?(\d+)/i);
+        if (urlWeekMatch) {
+            candidates.push({ href, weekNum: parseInt(urlWeekMatch[2], 10) });
+            return;
+        }
+
+        // Find the position of this element in the HTML
+        const outerHtml = $.html(element);
+        const elementPos = bodyHtml.indexOf(outerHtml);
+
+        if (elementPos === -1) {
+            candidates.push({ href, weekNum: null });
+            return;
+        }
+
+        // Find the last week number mentioned before this element in the HTML
+        const htmlBeforeElement = bodyHtml.substring(0, elementPos);
+        const weekMatches = [...htmlBeforeElement.matchAll(/uge\s+(\d+)|week\s+(\d+)/gi)];
+
+        let weekNum: number | null = null;
+        if (weekMatches.length > 0) {
+            const lastMatch = weekMatches[weekMatches.length - 1];
+            weekNum = parseInt(lastMatch[1] || lastMatch[2], 10);
+        }
+
+        candidates.push({ href, weekNum });
     });
 
-    // If not found with week context, try just finding the day
-    if (!pdfUrl) {
-        $('a[href$=".pdf"]').each((_, element) => {
-            const href = $(element).attr('href');
-            const text = $(element).text().toLowerCase();
-
-            if (!href) return;
-
-            if (text.includes(dayName.toLowerCase()) || href.toLowerCase().includes(dayName.toLowerCase())) {
-                pdfUrl = href;
-                return false; // Break the loop
-            }
-        });
+    // Find the candidate for the current week
+    const match = candidates.find((c) => c.weekNum === weekNumber);
+    if (match) {
+        return match.href;
     }
 
-    return pdfUrl;
+    // Fallback: if only one candidate exists without week context, use it
+    if (candidates.length === 1 && candidates[0].weekNum === null) {
+        return candidates[0].href;
+    }
+
+    return null;
 }
 
 /**
