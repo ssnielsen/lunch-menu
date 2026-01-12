@@ -47,19 +47,19 @@ function getWeekNumber(date: Date): number {
     return 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
 }
 
+const WEEKDAYS: Array<{ danish: string; english: DayOfWeek }> = [
+    { danish: 'mandag', english: 'monday' },
+    { danish: 'tirsdag', english: 'tuesday' },
+    { danish: 'onsdag', english: 'wednesday' },
+    { danish: 'torsdag', english: 'thursday' },
+    { danish: 'fredag', english: 'friday' },
+];
+
 /**
  * Get the Danish day name and English day identifier for today
  * @returns Object with Danish day name and English identifier
  */
 function getCurrentDay(): { danish: string; english: DayOfWeek } {
-    const days: Array<{ danish: string; english: DayOfWeek }> = [
-        { danish: 'mandag', english: 'monday' },
-        { danish: 'tirsdag', english: 'tuesday' },
-        { danish: 'onsdag', english: 'wednesday' },
-        { danish: 'torsdag', english: 'thursday' },
-        { danish: 'fredag', english: 'friday' },
-    ];
-
     const today = new Date();
     const dayIndex = today.getDay();
 
@@ -69,7 +69,19 @@ function getCurrentDay(): { danish: string; english: DayOfWeek } {
     }
 
     // Monday is 1, Friday is 5, so subtract 1 to get array index
-    return days[dayIndex - 1];
+    return WEEKDAYS[dayIndex - 1];
+}
+
+/**
+ * Get day info by name (Danish or English)
+ * @param name - The day name to look up
+ * @returns Object with Danish day name and English identifier, or null if not found
+ */
+function getDayByName(name: string): { danish: string; english: DayOfWeek } | null {
+    const lowerName = name.toLowerCase();
+    return WEEKDAYS.find(
+        (day) => day.danish === lowerName || day.english === lowerName
+    ) || null;
 }
 
 /**
@@ -246,6 +258,22 @@ function findMenuPdfUrl(html: string, weekNumber: number, dayName: string): stri
 /**
  * Main function to fetch and parse today's lunch menu
  */
+/**
+ * Get argument value from args array
+ * @param args - Command line arguments
+ * @param flags - Flags to look for (e.g., ['--week', '-w'])
+ * @returns The value after the flag, or null if not found
+ */
+function getArgValue(args: string[], flags: string[]): string | null {
+    for (const flag of flags) {
+        const index = args.indexOf(flag);
+        if (index !== -1 && index + 1 < args.length) {
+            return args[index + 1];
+        }
+    }
+    return null;
+}
+
 async function main() {
     try {
         // Parse command line arguments
@@ -253,34 +281,64 @@ async function main() {
         const noAllergies = args.includes('--no-allergies') || args.includes('-na');
 
         if (args.includes('--help') || args.includes('-h')) {
-            console.log('Usage: node --experimental-strip-types scripts/fetch-lunch-menu.ts [options]');
+            console.log('Usage: node --experimental-strip-types fetch-lunch-menu.ts [options]');
             console.log('');
             console.log('Options:');
+            console.log('  --week, -w <number>    Specify week number (default: current week)');
+            console.log('  --day, -d <name>       Specify day name in Danish or English');
+            console.log('                         (e.g., mandag, monday, tirsdag, tuesday)');
             console.log('  --no-allergies, -na    Remove allergy information from menu');
             console.log('  --help, -h             Show this help message');
+            console.log('');
+            console.log('Examples:');
+            console.log('  fetch-lunch-menu.ts --week 3 --day friday');
+            console.log('  fetch-lunch-menu.ts -w 2 -d mandag');
             process.exit(0);
         }
 
         const menuPageUrl = 'https://www.nooncph.dk/ugens-menuer';
 
-        // Get current date info
+        // Get current date info as defaults
         const today = new Date();
-        const weekNumber = getWeekNumber(today);
-        const currentDay = getCurrentDay();
+        let weekNumber = getWeekNumber(today);
+        let selectedDay: { danish: string; english: DayOfWeek };
 
-        console.log(`Fetching menu for Week ${weekNumber}, ${currentDay.danish} (${currentDay.english})...`);
+        // Parse --week argument
+        const weekArg = getArgValue(args, ['--week', '-w']);
+        if (weekArg) {
+            const parsedWeek = parseInt(weekArg, 10);
+            if (isNaN(parsedWeek) || parsedWeek < 1 || parsedWeek > 53) {
+                throw new Error(`Invalid week number: ${weekArg}. Must be between 1 and 53.`);
+            }
+            weekNumber = parsedWeek;
+        }
+
+        // Parse --day argument
+        const dayArg = getArgValue(args, ['--day', '-d']);
+        if (dayArg) {
+            const day = getDayByName(dayArg);
+            if (!day) {
+                const validDays = WEEKDAYS.map((d) => `${d.danish}/${d.english}`).join(', ');
+                throw new Error(`Invalid day: ${dayArg}. Valid days: ${validDays}`);
+            }
+            selectedDay = day;
+        } else {
+            selectedDay = getCurrentDay();
+        }
+
+        console.log(`Fetching menu for Week ${weekNumber}, ${selectedDay.danish} (${selectedDay.english})...`);
         console.log('');
 
         // Fetch the menu page
         console.log('Fetching menu page...');
         const html = await fetchUrl(menuPageUrl);
 
-        // Find the PDF URL for today
+        // Find the PDF URL for the selected day
         console.log('Finding PDF link...');
-        const pdfUrl = findMenuPdfUrl(html, weekNumber, currentDay.danish);
+        const pdfUrl = findMenuPdfUrl(html, weekNumber, selectedDay.danish);
 
         if (!pdfUrl) {
-            throw new Error(`Could not find PDF for ${currentDay.danish} in week ${weekNumber}`);
+            throw new Error(`Could not find PDF for ${selectedDay.danish} in week ${weekNumber}`);
         }
 
         // Make sure the URL is absolute
@@ -315,7 +373,7 @@ async function main() {
         // Output the menu
         console.log('');
         console.log('='.repeat(60));
-        console.log(`MENU FOR ${currentDay.danish.toUpperCase()} - WEEK ${weekNumber}`);
+        console.log(`MENU FOR ${selectedDay.danish.toUpperCase()} - WEEK ${weekNumber}`);
         console.log('='.repeat(60));
         console.log('');
         console.log(menuText);
